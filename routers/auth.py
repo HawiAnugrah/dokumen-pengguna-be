@@ -62,16 +62,40 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     user.last_login = datetime.now(timezone.utc)
     db.commit()
 
-    # Buat token akses JWT
+    # Buat token akses JWT & refresh token
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    refresh_token = auth.create_refresh_token(
+        data={"sub": user.email}
     )
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "refresh_token": refresh_token,
         "user": user
+    }
+
+@router.post("/refresh", response_model=schemas.TokenRefreshResponse)
+def refresh_token(request: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
+    """Memperbarui access token yang kedaluwarsa menggunakan refresh token yang valid."""
+    email = auth.verify_refresh_token(request.refresh_token)
+    user = db.query(model.User).filter(model.User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Pengguna tidak ditemukan."
+        )
+
+    new_access_token = auth.create_access_token(data={"sub": user.email})
+    new_refresh_token = auth.create_refresh_token(data={"sub": user.email})
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "refresh_token": new_refresh_token
     }
 
 @router.post("/forgot-password")
@@ -91,8 +115,9 @@ def forgot_password(request: schemas.ForgotPasswordRequest, db: Session = Depend
     )
     
     #  Kirim Email Reset Password
-        #  Kirim Email Reset Password
-    reset_link = f"http://localhost:3000/reset-password?token={reset_token}"
+    import os
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
     
     # Kirim email asli via Brevo
     send_reset_password_email(to_email=user.email, reset_link=reset_link)

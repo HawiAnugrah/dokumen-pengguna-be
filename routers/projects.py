@@ -1,4 +1,6 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List
 from services.ai import (
@@ -19,7 +21,7 @@ import schemas
 import auth
 from database import get_db
 from services.token_tracker import record_token_usage
-from database import get_db
+from services.pdf_generator import build_project_pdf
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
 
@@ -548,3 +550,33 @@ def suggest_epic_refine_endpoint(
         )
 
     return schemas.SuggestEpicRefineResponse(title=result.title, description=result.description)
+
+
+@router.get("/{project_id}/export/pdf")
+def export_project_pdf(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: model.User = Depends(auth.get_current_user),
+):
+    """Mengekspor seluruh spesifikasi kebutuhan proyek ke dalam bentuk dokumen PDF (PRD/SRS)."""
+    project = db.query(model.Project).filter(model.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Proyek tidak ditemukan"
+        )
+    check_workspace_access(project.workspace_id, current_user.id, db)
+
+    try:
+        pdf_bytes = build_project_pdf(project)
+        safe_filename = re.sub(r'[^a-zA-Z0-9_\-]', '_', project.name).strip('_') or 'project'
+        headers = {
+            "Content-Disposition": f'attachment; filename="{safe_filename}-spec.pdf"',
+            "Content-Type": "application/pdf",
+        }
+        return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal membuat file PDF: {str(e)}"
+        )

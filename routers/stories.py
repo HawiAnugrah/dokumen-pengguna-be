@@ -345,19 +345,19 @@ def upload_story_image(
     db: Session = Depends(get_db),
     current_user: model.User = Depends(auth.get_current_user)
 ):
-    """Upload file gambar lokal untuk sebuah User Story."""
+    """Upload file gambar untuk sebuah User Story (ke Supabase Cloud Storage atau fallback lokal)."""
     db_story = db.query(model.UserStory).filter(model.UserStory.id == id).first()
     if not db_story:
         raise HTTPException(status_code=404, detail="User Story tidak ditemukan")
 
-    ext = os.path.splitext(file.filename or "")[1]
+    ext = os.path.splitext(file.filename or "")[1] or ".png"
     filename = f"{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    content_type = file.content_type or "image/png"
+    file_bytes = file.file.read()
 
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    from services.storage import upload_story_image as upload_story_image_file
+    image_url = upload_story_image_file(file_bytes, filename, content_type=content_type)
 
-    image_url = f"/static/story_images/{filename}"
     db_image = model.StoryImage(user_story_id=id, url=image_url, caption=caption)
     db.add(db_image)
     db.commit()

@@ -60,11 +60,61 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
     text = str(text)
-    # Ganti ampersand dulu, lalu < dan >
+
+    # 1. Normalisasi variasi Unicode Hyphens & Dashes (Penyebab utama kotak hitam ■ di Helvetica)
+    for uh in [
+        '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015',
+        '\u2212', '\u00ad', '\ufe58', '\ufe63', '\uff0d'
+    ]:
+        text = text.replace(uh, '-')
+
+    # 2. Normalisasi smart quotes & tanda petik khusus
+    for q in ['\u2018', '\u2019', '\u201a', '\u201b', '\u2039', '\u203a']:
+        text = text.replace(q, "'")
+    for q in ['\u201c', '\u201d', '\u201e', '\u201f', '\u00ab', '\u00bb']:
+        text = text.replace(q, '"')
+
+    # 3. Normalisasi spasi khusus dan zero-width
+    for sp in ['\u00a0', '\u2002', '\u2003', '\u2009', '\u200a']:
+        text = text.replace(sp, ' ')
+    for zw in ['\u200b', '\u200c', '\u200d', '\ufeff']:
+        text = text.replace(zw, '')
+
+    # 4. Normalisasi simbol umum
+    symbol_map = {
+        '\u2026': '...',
+        '\u2022': '-',
+        '\u25cf': '-',
+        '\u25cb': '-',
+        '\u25a0': '-',
+        '\u25aa': '-',
+        '\u2713': '[v]',
+        '\u2714': '[v]',
+        '\u2717': '[x]',
+        '\u2718': '[x]',
+        '\u2192': '->',
+        '\u2190': '<-',
+        '\u21d2': '=>',
+        '\u21d4': '<=>',
+    }
+    for orig, rep in symbol_map.items():
+        text = text.replace(orig, rep)
+
+    # 5. Filter karakter Unicode di luar Latin-1 (0-255) yang tidak didukung Type 1 Helvetica
+    # agar tidak diganti menjadi kotak hitam (\u25a0) oleh ReportLab
+    cleaned_chars = []
+    for ch in text:
+        if ord(ch) < 256 or ch in ('\n', '\r', '\t'):
+            cleaned_chars.append(ch)
+    text = "".join(cleaned_chars)
+
+    # 6. Escape XML entities untuk Flowable Paragraph
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    # Ganti newline dengan <br/>
+
+    # 7. Ganti newline dengan <br/>
     text = text.replace("\n", "<br/>")
     return text
+
 
 def build_project_pdf(project) -> bytes:
     """
@@ -241,7 +291,7 @@ def build_project_pdf(project) -> bytes:
                         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
                     ]))
                     story_elements.append(Spacer(1, 4))
-                    story_elements.append(p_table)
+                    story_elements.append(KeepTogether(p_table))
             story_elements.append(Spacer(1, 8))
 
     # ================= 2. EPICS & USER STORIES =================
@@ -399,7 +449,7 @@ def build_project_pdf(project) -> bytes:
                 ('LEFTPADDING', (0, 0), (-1, -1), 6),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 6),
             ]))
-            story_elements.append(ts_table)
+            story_elements.append(KeepTogether(ts_table))
             story_elements.append(Spacer(1, 8))
 
         if guidelines:
@@ -420,7 +470,7 @@ def build_project_pdf(project) -> bytes:
                     ('RIGHTPADDING', (0, 0), (-1, -1), 8),
                 ]))
                 story_elements.append(Spacer(1, 4))
-                story_elements.append(g_table)
+                story_elements.append(KeepTogether(g_table))
             story_elements.append(Spacer(1, 8))
 
         if plans:

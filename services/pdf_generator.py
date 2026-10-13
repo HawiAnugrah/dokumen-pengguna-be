@@ -279,26 +279,23 @@ def build_project_pdf(project) -> bytes:
                     # Acceptance Criteria
                     ac_list = getattr(s, "acceptance_criteria", []) or []
                     if ac_list:
-                        ac_text = "<b>Acceptance Criteria:</b><br/>"
+                        story_box_data.append([Paragraph("<b>Acceptance Criteria:</b>", style_body)])
                         for idx_ac, ac in enumerate(ac_list, 1):
-                            ac_text += f"&nbsp;&nbsp;• {clean_text(ac.description)}<br/>"
-                        story_box_data.append([Paragraph(ac_text, style_body)])
+                            story_box_data.append([Paragraph(f"&nbsp;&nbsp;• {clean_text(ac.description)}", style_body)])
 
                     # Tech Notes
                     tech_notes = getattr(s, "tech_notes", []) or []
                     if tech_notes:
-                        tn_text = "<b>Catatan Teknis (Tech Notes):</b><br/>"
+                        story_box_data.append([Paragraph("<b>Catatan Teknis (Tech Notes):</b>", style_body)])
                         for tn in tech_notes:
-                            tn_text += f"&nbsp;&nbsp;<i>{clean_text(tn.content)}</i><br/>"
-                        story_box_data.append([Paragraph(tn_text, style_body)])
+                            story_box_data.append([Paragraph(f"&nbsp;&nbsp;<i>{clean_text(tn.content)}</i>", style_body)])
 
                     # Test Cases
                     test_cases = getattr(s, "test_cases", []) or []
                     if test_cases:
-                        tc_text = "<b>Skenario Pengujian (Test Cases):</b><br/>"
+                        story_box_data.append([Paragraph("<b>Skenario Pengujian (Test Cases):</b>", style_body)])
                         for idx_tc, tc in enumerate(test_cases, 1):
-                            tc_text += f"&nbsp;&nbsp;<b>TC-{idx_tc}:</b> {clean_text(tc.action)} &rarr; <i>Ekspektasi: {clean_text(tc.expected_result)}</i><br/>"
-                        story_box_data.append([Paragraph(tc_text, style_body)])
+                            story_box_data.append([Paragraph(f"&nbsp;&nbsp;<b>TC-{idx_tc}:</b> {clean_text(tc.action)} &rarr; <i>Ekspektasi: {clean_text(tc.expected_result)}</i>", style_body)])
 
                     story_table = Table(story_box_data, colWidths=[515])
                     story_table.setStyle(TableStyle([
@@ -428,30 +425,16 @@ def build_project_pdf(project) -> bytes:
 
         if plans:
             story_elements.append(Paragraph("5.3. Rencana Pengembangan (Development Plans)", style_h2))
-            plan_rows = [[
-                Paragraph("<b>Tugas / Fitur</b>", style_body_bold),
-                Paragraph("<b>Status</b>", style_body_bold),
-                Paragraph("<b>Deskripsi</b>", style_body_bold),
-            ]]
-            for p in plans:
-                plan_rows.append([
-                    Paragraph(clean_text(p.title), style_body),
-                    Paragraph(f"<b>{clean_text(p.status.upper() if p.status else 'TODO')}</b>", style_body),
-                    Paragraph(clean_text(p.description or "-"), style_body),
-                ])
-            plan_table = Table(plan_rows, colWidths=[150, 75, 290])
-            plan_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
-                ('BOX', (0, 0), (-1, -1), 0.5, BORDER_LIGHT),
-                ('INNERGRID', (0, 0), (-1, -1), 0.5, BORDER_LIGHT),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-                ('LEFTPADDING', (0, 0), (-1, -1), 6),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-            ]))
-            story_elements.append(Spacer(1, 4))
-            story_elements.append(plan_table)
+            for idx_p, p in enumerate(plans, 1):
+                status_badge = clean_text(p.status.upper() if p.status else 'TODO')
+                story_elements.append(Spacer(1, 4))
+                story_elements.append(Paragraph(f"<b>5.3.{idx_p}. {clean_text(p.title)}</b> &nbsp;&nbsp;[{status_badge}]", style_body_bold))
+                if p.description:
+                    desc_clean = clean_text(p.description)
+                    for part in desc_clean.split("<br/>"):
+                        if part.strip():
+                            story_elements.append(Paragraph(part.strip(), style_body))
+                story_elements.append(Spacer(1, 4))
 
     # Bangun dokumen menggunakan NumberedCanvas
     doc.build(story_elements, canvasmaker=NumberedCanvas)

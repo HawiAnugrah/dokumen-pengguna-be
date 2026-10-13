@@ -800,34 +800,35 @@ def generate_project_requirements(
     ATURAN KHUSUS AI (WAJIB DIPATUHI):
     {rules_prompt}
 
-    INSTRUKSI PENYUSUNAN (RINGKAS, PADAT, & ADA ISINYA):
+    INSTRUKSI PENYUSUNAN (RINGKAS, PADAT, & BERVARIASI):
 
     1. USER TYPES (2 - 3 tipe pengguna)
-        - Identifikasi 2 sampai 3 tipe pengguna utama.
-        - Deskripsi singkat (2-3 kalimat) mengenai peran dan hak aksesnya.
-        - Setiap User Type sertakan 1 persona fiktif ringkas (nama, usia, pekerjaan, goals singkat).
+        - Identifikasi 2 sampai 3 tipe pengguna yang berbeda peran dan hak aksesnya (misal: Pengguna Umum/Pelamar, Perekrut/Perusahaan, Administrator).
+        - Deskripsi singkat (2-3 kalimat) mengenai peran, tanggung jawab, dan tingkat hak aksesnya di aplikasi.
+        - Setiap User Type WAJIB menyertakan 1 persona fiktif konkret dengan nama, usia, pekerjaan, serta 'goals' (tujuan spesifik yang ingin dicapai) dan 'frustrations' (kendala/masalah yang dihadapi saat ini) yang jelas dan realistis (minimal 2 kalimat per poin).
 
     2. EPICS (3 - 4 modul utama)
-        - Susun 3 sampai 4 Epic modul utama (contoh: Autentikasi & Akun, Fitur Utama 1, Fitur Utama 2, Manajemen/Laporan).
-        - Deskripsi 2-3 kalimat yang menjelaskan cakupan modul tersebut.
+        - Susun 3 sampai 4 Epic modul utama aplikasi (contoh: Autentikasi & Profil Akun, Modul Transaksi/Aktivitas Utama, Manajemen Data/Dashboard, Pengaturan & Laporan).
+        - Deskripsi 2-3 kalimat yang menjelaskan cakupan dan batas kerja modul tersebut.
 
-    3. USER STORIES (1 - 2 story simpel per Epic)
-        - Buat 1 sampai 2 User Story inti yang ringkas untuk tiap Epic (total 3 - 6 user stories).
-        - Format ringkas & jelas:
-          * epic_name: nama Epic terkait (HARUS sama persis dengan nama Epic di atas)
-          * user_type: nama User Type terkait (HARUS sama persis dengan nama User Type di atas)
-          * story_name: judul fitur ringkas (contoh: 'Login Pengguna', 'Pencarian Dokumen')
-          * description: 2-3 kalimat narasi ringkas ('Sebagai [user_type], saya ingin [fitur], agar [manfaat bisnis]...')
-          * acceptance_criteria: 1-2 poin Given-When-Then ringkas
-          * tech_notes: 1-2 poin catatan teknis ringkas
-          * test_cases: 1-2 poin skenario pengujian ringkas
+    3. USER STORIES (1 - 2 story per Epic, total 4 - 8 user stories)
+        - WAJIB VARIASIKAN `user_type` di seluruh User Stories!
+        - SANGAT PENTING: JANGAN semua story menggunakan tipe pengguna yang sama! Setiap User Type yang ada di poin (1) HARUS memiliki minimal satu User Story yang merepresentasikan kebutuhan unik mereka. (Misal: ada story untuk Pencari Kerja, ada story untuk Perekrut/Perusahaan, dan ada story untuk Admin).
+        - Deskripsi tiap story HARUS unik dan kontekstual — dilarang menyalin narasi yang sama persis untuk story yang berbeda:
+          * epic_name: nama Epic terkait (HARUS cocok persis dengan salah satu nama Epic di atas)
+          * user_type: nama User Type terkait (HARUS cocok persis dengan salah satu nama User Type di atas)
+          * story_name: judul fitur spesifik dan ringkas (contoh: 'Filter & Cari Lowongan', 'Pasang Iklan Lowongan Kerja', 'Verifikasi Dokumen Pengguna')
+          * description: narasi terstruktur: 'Sebagai [user_type], saya ingin [aksi/fitur spesifik], agar [tujuan & manfaat bisnis terukur].' Sertakan ringkasan alur dan feedback sistem.
+          * acceptance_criteria: 1-2 kriteria penerimaan terukur dalam format Given-When-Then.
+          * tech_notes: 1-2 catatan teknis arsitektur/API/database.
+          * test_cases: 1-2 skenario pengujian QA.
 
     4. NON-FUNCTIONAL REQUIREMENTS (2 - 3 NFR inti)
         - Buat 2 sampai 3 NFR penting (kategori: Performance, Security, Usability) dengan target yang terukur dan ringkas (1-2 kalimat).
 
     5. FORMAT
         - Gunakan Bahasa Indonesia yang baik dan profesional.
-        - Jaga isi tetap ringkas, tidak bertele-tele, dan hasilkan output sesuai skema JSON.
+        - Jaga isi tetap berbobot, bervariasi, tidak monoton, dan hasilkan output sesuai skema JSON.
     """
 
     try:

@@ -24,7 +24,7 @@ def get_user_token_usage(
     start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
     start_of_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
 
-    # 1. Total token bulan ini & hari ini (gabungan seluruh akun / server-wide)
+    # 1. Total token & request bulan ini & hari ini (gabungan seluruh akun / server-wide)
     monthly_used = db.query(func.sum(model.AiTokenUsage.total_tokens)).filter(
         model.AiTokenUsage.created_at >= start_of_month
     ).scalar() or 0
@@ -33,12 +33,21 @@ def get_user_token_usage(
         model.AiTokenUsage.created_at >= start_of_day
     ).scalar() or 0
 
-    # 2. Detail Konfigurasi & Pelacakan Terpisah per Provider AI
+    daily_requests_total = db.query(func.count(model.AiTokenUsage.id)).filter(
+        model.AiTokenUsage.created_at >= start_of_day
+    ).scalar() or 0
+
+    monthly_requests_total = db.query(func.count(model.AiTokenUsage.id)).filter(
+        model.AiTokenUsage.created_at >= start_of_month
+    ).scalar() or 0
+
+    # 2. Detail Konfigurasi & Pelacakan RPD (Requests Per Day) Terpisah per Provider AI
     provider_configs = [
         {
             "name": "Google Gemini",
             "provider_key": "gemini",
             "model": os.getenv("GEMINI_MODEL_NAME") or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            "rpd_limit": int(os.getenv("GEMINI_RPD_LIMIT", "1500")),
             "daily_limit": int(os.getenv("GEMINI_DAILY_LIMIT", "1000000")),
             "monthly_limit": int(os.getenv("GEMINI_MONTHLY_LIMIT", "30000000")),
             "status": "Ready" if os.getenv("GEMINI_API_KEY") else "Not Configured"
@@ -47,6 +56,7 @@ def get_user_token_usage(
             "name": "OpenRouter AI",
             "provider_key": "openrouter",
             "model": os.getenv("OPENROUTER_MODEL_NAME", "meta-llama/llama-3.3-70b-instruct:free"),
+            "rpd_limit": int(os.getenv("OPENROUTER_RPD_LIMIT", "200")),
             "daily_limit": int(os.getenv("OPENROUTER_DAILY_LIMIT", "200000")),
             "monthly_limit": int(os.getenv("OPENROUTER_MONTHLY_LIMIT", "5000000")),
             "status": "Ready" if os.getenv("OPENROUTER_API_KEY") else "Not Configured"
@@ -55,11 +65,16 @@ def get_user_token_usage(
             "name": "Groq Cloud LPU",
             "provider_key": "groq",
             "model": os.getenv("GROQ_MODEL_NAME", "llama-3.3-70b-versatile"),
+            "rpd_limit": int(os.getenv("GROQ_RPD_LIMIT", "1000")),
             "daily_limit": int(os.getenv("GROQ_DAILY_LIMIT", "500000")),
             "monthly_limit": int(os.getenv("GROQ_MONTHLY_LIMIT", "15000000")),
             "status": "Ready" if os.getenv("GROQ_API_KEY") else "Not Configured"
         }
     ]
+
+    total_rpd_limit = sum(cfg["rpd_limit"] for cfg in provider_configs)
+    rpd_remaining_total = max(0, total_rpd_limit - daily_requests_total)
+    rpd_percentage_total = min(100.0, round((daily_requests_total / total_rpd_limit) * 100, 1)) if total_rpd_limit > 0 else 0.0
 
     total_monthly_quota = sum(cfg["monthly_limit"] for cfg in provider_configs)
     remaining = max(0, total_monthly_quota - monthly_used)
@@ -83,7 +98,7 @@ def get_user_token_usage(
             model.AiTokenUsage.created_at >= start_of_month
         ).scalar() or 0
 
-        # Total request per provider (seluruh akun)
+        # Total request (RPD) per provider (seluruh akun)
         p_req_today = db.query(func.count(model.AiTokenUsage.id)).filter(
             model.AiTokenUsage.provider == pkey,
             model.AiTokenUsage.created_at >= start_of_day
@@ -95,6 +110,12 @@ def get_user_token_usage(
         ).scalar() or 0
 
         usage_by_provider[pkey] = p_monthly_used
+
+        # RPD (Requests Per Day) metrics
+        r_limit = cfg["rpd_limit"]
+        r_used = p_req_today
+        r_rem = max(0, r_limit - r_used)
+        r_pct = min(100.0, round((r_used / r_limit) * 100, 1)) if r_limit > 0 else 0.0
 
         d_limit = cfg["daily_limit"]
         d_rem = max(0, d_limit - p_daily_used)
@@ -109,6 +130,10 @@ def get_user_token_usage(
             "provider_key": pkey,
             "model": cfg["model"],
             "status": cfg["status"],
+            "rpd_limit": r_limit,
+            "rpd_used": r_used,
+            "rpd_remaining": r_rem,
+            "rpd_percentage": r_pct,
             "daily_limit": d_limit,
             "daily_used": p_daily_used,
             "daily_remaining": d_rem,
@@ -151,6 +176,11 @@ def get_user_token_usage(
     ]
 
     return {
+        "rpd_total_limit": total_rpd_limit,
+        "rpd_total_used": daily_requests_total,
+        "rpd_total_remaining": rpd_remaining_total,
+        "rpd_total_percentage": rpd_percentage_total,
+        "monthly_requests_total": monthly_requests_total,
         "monthly_quota": total_monthly_quota,
         "monthly_used": monthly_used,
         "daily_used": daily_used_total,

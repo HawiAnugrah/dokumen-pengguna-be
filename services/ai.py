@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import threading
 import itertools
 from typing import List, Optional, Type, TypeVar, Union
@@ -253,6 +254,42 @@ class NFRSuggestion(BaseModel):
         description="Detail kebutuhan non-fungsional terukur."
     )
 
+class UserJourneyStepSuggestion(BaseModel):
+    title: str = Field(description="Judul singkat tahapan ini (misal: 'Membuka Halaman Utama', 'Mengisi Formulir Pendaftaran')")
+    description: str = Field(
+        description=(
+            "Penjelasan detail 2-3 kalimat mengenai aksi konkret yang dilakukan pengguna pada tahap ini. "
+            "Sebutkan halaman, komponen UI, atau tombol spesifik yang diklik, serta bagaimana sistem merespons aksi tersebut."
+        )
+    )
+    persona_name: str = Field(
+        description=(
+            "Nama persona (dari daftar persona yang diberikan) yang melakukan aksi pada tahap ini. "
+            "HARUS persis sama (termasuk huruf besar/kecil) dengan salah satu nama di daftar persona."
+        )
+    )
+
+class UserJourneySuggestion(BaseModel):
+    narrative: str = Field(
+        description=(
+            "Satu paragraf naratif (5-7 kalimat) yang menggambarkan keseluruhan alur pengalaman pengguna "
+            "secara profesional dan mengalir dari awal penggunaan hingga tujuan tercapai."
+        )
+    )
+    steps: List[UserJourneyStepSuggestion] = Field(
+        description="5-7 tahapan berurutan dari awal (start) sampai akhir (end), masing-masing di-assign ke satu persona."
+    )
+
+class StoryDraftSuggestion(BaseModel):
+    story_name: str = Field(description="Judul cerita pengguna yang spesifik terhadap aksi peran ini (misal: 'Filter Kandidat Berdasarkan Keahlian')")
+    description: str = Field(
+        description=(
+            "Narasi user story terstruktur 2-3 kalimat: "
+            "'Sebagai [user_type], saya ingin [aksi spesifik], agar [manfaat & tujuan bisnis terukur]'. "
+            "Jelaskan juga alur singkat dan respons sistem."
+        )
+    )
+
 class ProjectRequirementsOutput(BaseModel):
     user_types: List[UserTypeSuggestion] = Field(
         min_length=1,
@@ -270,7 +307,11 @@ class ProjectRequirementsOutput(BaseModel):
     )
     nfrs: List[NFRSuggestion] = Field(
         default_factory=list,
-        description="Daftar NFR awal (bisa kosong dan ditambahkan nanti per-kategori)."
+        description="Daftar 3-5 Non-Functional Requirements (NFR) wajib mencakup Performance, Security, Reliability, dan Usability dengan target kuantitatif terukur."
+    )
+    user_journey: Optional[UserJourneySuggestion] = Field(
+        default=None,
+        description="Alur narasi dan langkah User Journey menyeluruh (5-7 tahapan langkah terstruktur)."
     )
 
 # ================= TAMBAHAN: AI DRAFT & REFINE NFR (dipakai NonFunctionalList.tsx) =================
@@ -385,33 +426,34 @@ class UserGoalsSuggestion(BaseModel):
         )
     )
 
-class UserJourneyStepSuggestion(BaseModel):
-    title: str = Field(description="Judul singkat tahapan ini (misal: 'Membuka Halaman Utama', 'Mengisi Formulir Pendaftaran')")
-    description: str = Field(
-        description=(
-            "Penjelasan detail 2-3 kalimat mengenai aksi konkret yang dilakukan pengguna pada tahap ini. "
-            "Sebutkan halaman, komponen UI, atau tombol spesifik yang diklik, serta bagaimana sistem merespons "
-            "aksi tersebut."
-        )
-    )
-    persona_name: str = Field(
-        description=(
-            "Nama persona (dari daftar persona yang diberikan) yang melakukan aksi pada tahap ini. "
-            "HARUS persis sama (termasuk huruf besar/kecil) dengan salah satu nama di daftar persona."
-        )
-    )
+def suggest_story_draft(
+    project_name: str,
+    epic_title: str,
+    user_type: str,
+    project_description: str = "",
+) -> StoryDraftSuggestion:
+    """AI Draft User Story yang spesifik terhadap peranan user_type dan modul/epic terkait."""
+    prompt = f"""
+Kamu adalah Senior Agile Product Owner yang menyusun User Story konkret untuk sebuah proyek software.
 
+Nama Proyek: {project_name}
+Deskripsi Proyek: {project_description or 'Tidak ada deskripsi.'}
+Modul/Epic: {epic_title}
+Tipe Pengguna (User Type): {user_type}
 
-class UserJourneySuggestion(BaseModel):
-    narrative: str = Field(
-        description=(
-            "Satu paragraf naratif (5-7 kalimat) yang menggambarkan keseluruhan alur pengalaman pengguna "
-            "secara profesional dan mengalir dari awal penggunaan hingga tujuan tercapai."
-        )
-    )
-    steps: List[UserJourneyStepSuggestion] = Field(
-        description="5-7 tahapan berurutan dari awal (start) sampai akhir (end), masing-masing di-assign ke satu persona."
-    )
+Tugasmu:
+Buatkan SATU User Story yang sangat relevan, konkret, dan spesifik untuk tipe pengguna "{user_type}" di dalam modul/epic "{epic_title}".
+Format deskripsi WAJIB:
+"Sebagai {user_type}, saya ingin [aksi/fitur spesifik], agar [manfaat & nilai bisnis terukur]."
+Sertakan juga ringkasan alur aksi pengguna dan respons sistem (2-3 kalimat total).
+
+Tulis dalam Bahasa Indonesia yang profesional.
+""".strip()
+
+    try:
+        return _generate_structured(prompt, StoryDraftSuggestion, temperature=0.5)
+    except Exception as e:
+        raise RuntimeError(f"Gagal generate draf user story: {str(e)}") from e
 
 class TechStackSuggestion(BaseModel):
     target_users: str = Field(description="Perkiraan skala/segmen target pengguna aplikasi (contoh: '1.000 - 10.000 pengguna aktif bulanan')")
@@ -526,23 +568,23 @@ _primary_gemini_model = os.getenv("GEMINI_MODEL_NAME") or os.getenv("GEMINI_MODE
 GEMINI_MODELS = list(dict.fromkeys([
     _primary_gemini_model,
     "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-1.5-flash",
-    "gemini-2.0-flash-lite"
+    "gemini-2.0-flash-001",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
 ]))
 GEMINI_MODEL = GEMINI_MODELS[0]
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL_NAME", "qwen/qwen3.8-27b:free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL_NAME", "nvidia/nemotron-3.5-lightning:free")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-_primary_groq_model = os.getenv("GROQ_MODEL_NAME") or "openai/gpt-oss-120b"
+_primary_groq_model = os.getenv("GROQ_MODEL_NAME") or "qwen/qwen3.8-27b"
 GROQ_MODELS = list(dict.fromkeys([
     _primary_groq_model,
+    "qwen/qwen3.8-27b",
     "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
     "openai/gpt-oss-20b"
 ]))
 GROQ_MODEL = GROQ_MODELS[0]
@@ -555,19 +597,26 @@ groq_client = OpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL, timeout=None)
 _PROVIDER_NAMES = ["gemini", "openrouter", "groq"]
 _provider_cycle = itertools.cycle(_PROVIDER_NAMES)
 _cycle_lock = threading.Lock()
+_gemini_cooldown_until = 0.0
 
 
 def _next_provider_order() -> List[str]:
-    """Coba Gemini terlebih dahulu (karena kualitas dan limit paling tinggi),
-    lalu fallback ke Groq dan OpenRouter jika Gemini error/limit."""
+    """Coba Gemini terlebih dahulu (jika tidak sedang cooldown kuota/503).
+    Jika Gemini sedang limit/down, utamakan Groq agar respons instan (<1 detik)."""
+    global _gemini_cooldown_until
+    now = time.time()
+    gemini_available = bool(gemini_clients) and (now >= _gemini_cooldown_until)
+
     providers = []
-    if gemini_clients:
+    if gemini_available:
         providers.append("gemini")
     if groq_client:
         providers.append("groq")
+    if not gemini_available and gemini_clients:
+        providers.append("gemini")
     if openrouter_client:
         providers.append("openrouter")
-    return providers if providers else ["gemini"]
+    return providers if providers else ["groq"]
 
 
 def _strip_json_fence(text: str) -> str:
@@ -595,7 +644,11 @@ def _extract_json_object(text: str) -> str:
     return candidate
 
 
+_active_gemini_key_idx = 0
+_key_lock = threading.Lock()
+
 def _call_gemini(prompt: str, schema: Type[T], temperature: float, max_output_tokens: Optional[int] = None) -> T:
+    global _active_gemini_key_idx
     if not gemini_clients:
         raise RuntimeError("GEMINI_API_KEY tidak diset di .env")
 
@@ -614,42 +667,140 @@ def _call_gemini(prompt: str, schema: Type[T], temperature: float, max_output_to
     if max_output_tokens:
         config_kwargs["max_output_tokens"] = min(max_output_tokens, 8192)
 
+    total_keys = len(gemini_clients)
     errors = []
+    quota_exhausted = False
     for model_name in GEMINI_MODELS:
-        for idx, client in enumerate(gemini_clients):
-            for attempt in range(2):
+        if quota_exhausted:
+            break
+        consecutive_503 = 0
+        consecutive_quota = 0
+        for offset in range(total_keys):
+            with _key_lock:
+                idx = (_active_gemini_key_idx + offset) % total_keys
+            client = gemini_clients[idx]
+
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+
+                finish_reason = None
                 try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(**config_kwargs),
-                    )
+                    finish_reason = response.candidates[0].finish_reason
+                except Exception:
+                    pass
+                if finish_reason is not None and str(finish_reason).upper().find("MAX_TOKENS") != -1:
+                    raise RuntimeError("Respons Gemini terpotong karena melebihi batas token maksimum.")
 
-                    finish_reason = None
-                    try:
-                        finish_reason = response.candidates[0].finish_reason
-                    except Exception:
-                        pass
-                    if finish_reason is not None and str(finish_reason).upper().find("MAX_TOKENS") != -1:
-                        raise RuntimeError("Respons Gemini terpotong karena melebihi batas token maksimum.")
+                raw_text = (response.text or "").strip()
+                candidate = _extract_json_object(raw_text)
+                result_json = json.loads(candidate)
+                return schema(**result_json)
+            except Exception as e:
+                err_str = str(e).lower()
+                is_404 = "404" in err_str or "not found" in err_str or "no longer available" in err_str or "not supported" in err_str
+                is_503 = "503" in err_str or "demand" in err_str or "unavailable" in err_str
+                is_quota = "429" in err_str or "quota" in err_str or "exhausted" in err_str or "rate" in err_str
 
-                    raw_text = (response.text or "").strip()
-                    candidate = _extract_json_object(raw_text)
-                    result_json = json.loads(candidate)
-                    return schema(**result_json)
-                except Exception as e:
-                    err_str = str(e).lower()
-                    is_503 = "503" in err_str or "demand" in err_str or "unavailable" in err_str
-                    
-                    if is_503 and attempt < 1:
-                        import time
-                        time.sleep(1.5 * (attempt + 1))
-                        continue
+                # Jika model 404 (tidak ada/deprecated di Google), langsung skip model ini tanpa buang waktu coba key lain
+                if is_404:
+                    errors.append(f"[Gemini {model_name}] 404 Model tidak tersedia")
+                    break
 
-                    errors.append(f"[Gemini {model_name} Key #{idx+1}] {e}")
-                    break  # Lanjut ke key / model berikutnya
+                # Jika key kehabisan RPD/kuota harian, geser pointer ke key berikutnya
+                if is_quota:
+                    consecutive_quota += 1
+                    with _key_lock:
+                        _active_gemini_key_idx = (idx + 1) % total_keys
+                    if consecutive_quota >= 2:
+                        errors.append(f"[Gemini {model_name}] Quota project habis pada 2 key berturut-turut")
+                        quota_exhausted = True
+                        break
+                else:
+                    consecutive_quota = 0
+
+                errors.append(f"[Gemini {model_name} Key #{idx+1}] {e}")
+
+                if is_503:
+                    consecutive_503 += 1
+                    # Jika 2 key berturut-turut kena 503 (server Google sedang overload), langsung fallback ke Groq
+                    if consecutive_503 >= 2:
+                        break
+                else:
+                    consecutive_503 = 0
+
+    global _gemini_cooldown_until
+    with _key_lock:
+        _gemini_cooldown_until = time.time() + 180  # Cooldown 3 menit agar request berikutnya instan lewat Groq
 
     raise RuntimeError("Semua Gemini API Key & Model gagal: " + " || ".join(errors))
+
+
+def _call_gemini_text(prompt: str, temperature: float = 0.5) -> str:
+    global _active_gemini_key_idx
+    if not gemini_clients:
+        raise RuntimeError("GEMINI_API_KEY tidak diset di .env")
+
+    total_keys = len(gemini_clients)
+    errors = []
+    quota_exhausted = False
+    for model_name in GEMINI_MODELS:
+        if quota_exhausted:
+            break
+        consecutive_503 = 0
+        consecutive_quota = 0
+        for offset in range(total_keys):
+            with _key_lock:
+                idx = (_active_gemini_key_idx + offset) % total_keys
+            client = gemini_clients[idx]
+
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=temperature),
+                )
+                text = (response.text or "").strip()
+                if text:
+                    return text
+            except Exception as e:
+                err_str = str(e).lower()
+                is_404 = "404" in err_str or "not found" in err_str or "no longer available" in err_str or "not supported" in err_str
+                is_503 = "503" in err_str or "demand" in err_str or "unavailable" in err_str
+                is_quota = "429" in err_str or "quota" in err_str or "exhausted" in err_str or "rate" in err_str
+
+                if is_404:
+                    errors.append(f"[Gemini {model_name}] 404 Model tidak tersedia")
+                    break
+
+                if is_quota:
+                    consecutive_quota += 1
+                    with _key_lock:
+                        _active_gemini_key_idx = (idx + 1) % total_keys
+                    if consecutive_quota >= 2:
+                        errors.append(f"[Gemini {model_name}] Quota project habis pada 2 key berturut-turut")
+                        quota_exhausted = True
+                        break
+                else:
+                    consecutive_quota = 0
+
+                errors.append(f"[Gemini {model_name} Key #{idx+1}] {e}")
+
+                if is_503:
+                    consecutive_503 += 1
+                    if consecutive_503 >= 2:
+                        break
+                else:
+                    consecutive_503 = 0
+
+    global _gemini_cooldown_until
+    with _key_lock:
+        _gemini_cooldown_until = time.time() + 180  # Cooldown 3 menit agar request berikutnya instan lewat Groq
+
+    raise RuntimeError("Semua Gemini API Key & Model gagal untuk teks: " + " || ".join(errors))
 
 
 def _call_openai_compatible(
@@ -734,10 +885,7 @@ def _generate_text(prompt: str, temperature: float = 0.5) -> str:
     for provider in _next_provider_order():
         try:
             if provider == "gemini":
-                if gemini_client is None:
-                    raise RuntimeError("GEMINI_API_KEY tidak diset di .env")
-                response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-                text = (response.text or "").strip()
+                text = _call_gemini_text(prompt, temperature=temperature)
             else:
                 client = openrouter_client if provider == "openrouter" else groq_client
                 model = OPENROUTER_MODEL if provider == "openrouter" else GROQ_MODEL
@@ -800,41 +948,149 @@ def generate_project_requirements(
     ATURAN KHUSUS AI (WAJIB DIPATUHI):
     {rules_prompt}
 
-    INSTRUKSI PENYUSUNAN (RINGKAS, PADAT, & BERVARIASI):
+    INSTRUKSI PENYUSUNAN (LENGKAP, KAYA, & BERVARIASI):
 
     1. USER TYPES (2 - 3 tipe pengguna)
-        - Identifikasi 2 sampai 3 tipe pengguna yang berbeda peran dan hak aksesnya (misal: Pengguna Umum/Pelamar, Perekrut/Perusahaan, Administrator).
+        - Identifikasi 2 sampai 3 tipe pengguna yang berbeda peran dan hak aksesnya (misal: Pelamar/Pencari Kerja, Perekrut/Perusahaan, Administrator).
         - Deskripsi singkat (2-3 kalimat) mengenai peran, tanggung jawab, dan tingkat hak aksesnya di aplikasi.
-        - Setiap User Type WAJIB menyertakan 1 persona fiktif konkret dengan nama, usia, pekerjaan, serta 'goals' (tujuan spesifik yang ingin dicapai) dan 'frustrations' (kendala/masalah yang dihadapi saat ini) yang jelas dan realistis (minimal 2 kalimat per poin).
+        - Setiap User Type WAJIB menyertakan 1 persona fiktif konkret.
+        - FIELD GOALS: Tuliskan minimal 2 sampai 3 poin tujuan konkret menggunakan bullet points (contoh: "• Menemukan lowongan kerja relevan sesuai minat dan keahlian\n• Melacak tahapan status lamaran secara real-time\n• Memperoleh notifikasi peluang karir yang sesuai profil").
+        - FIELD FRUSTRATIONS: Tuliskan minimal 2 sampai 3 poin kendala/frustrasi konkret menggunakan bullet points (contoh: "• Proses melamar yang panjang dan harus mengisi form berulang kali\n• Minimnya transparansi feedback atau penolakan dari perusahaan\n• Algoritma pencarian yang menampilkan lowongan tidak relevan").
 
-    2. EPICS (3 - 4 modul utama)
-        - Susun 3 sampai 4 Epic modul utama aplikasi (contoh: Autentikasi & Profil Akun, Modul Transaksi/Aktivitas Utama, Manajemen Data/Dashboard, Pengaturan & Laporan).
-        - Deskripsi 2-3 kalimat yang menjelaskan cakupan dan batas kerja modul tersebut.
+    2. EPICS (4 - 5 modul utama yang komprehensif)
+        - Susun 4 sampai 5 Epic modul utama aplikasi yang mencakup siklus hidup sistem secara menyeluruh (contoh: Autentikasi & Akun, Pencarian & Rekomendasi, Manajemen Lamaran & Seleksi, Dashboard & Analitik Pengguna, serta Notifikasi & Komunikasi).
+        - Deskripsi 2-3 kalimat yang menjelaskan cakupan bisnis dan batas kerja modul tersebut secara tegas.
 
-    3. USER STORIES (1 - 2 story per Epic, total 4 - 8 user stories)
-        - WAJIB VARIASIKAN `user_type` di seluruh User Stories!
-        - SANGAT PENTING: JANGAN semua story menggunakan tipe pengguna yang sama! Setiap User Type yang ada di poin (1) HARUS memiliki minimal satu User Story yang merepresentasikan kebutuhan unik mereka. (Misal: ada story untuk Pencari Kerja, ada story untuk Perekrut/Perusahaan, dan ada story untuk Admin).
-        - Deskripsi tiap story HARUS unik dan kontekstual — dilarang menyalin narasi yang sama persis untuk story yang berbeda:
+    3. USER STORIES (LENGKAP & DETAIL: MINIMAL 2 - 3 story PER SETIAP EPIC, total 8 - 14 user stories)
+        - PERHATIAN MUTLAK: SETIAP Epic yang kamu buat di poin (2) WAJIB MEMILIKI minimal 2 hingga 3 User Story di bawahnya! DILARANG KERAS ada Epic yang hanya memiliki 0 atau 1 user story!
+        - WAJIB VARIASIKAN `user_type` di seluruh User Stories! Setiap User Type yang ada di poin (1) HARUS memiliki porsi User Story yang seimbang dan merepresentasikan peran nyata mereka (misal: ada cerita untuk Pelamar/Pencari Kerja, Perekrut/HRD, dan Administrator/Sistem).
+        - Setiap story WAJIB mencakup skenario kerja nyata: alur utama (happy path), validasi input/kondisi khusus, dan aksi tindak lanjut.
+        - Detail setiap story:
           * epic_name: nama Epic terkait (HARUS cocok persis dengan salah satu nama Epic di atas)
           * user_type: nama User Type terkait (HARUS cocok persis dengan salah satu nama User Type di atas)
-          * story_name: judul fitur spesifik dan ringkas (contoh: 'Filter & Cari Lowongan', 'Pasang Iklan Lowongan Kerja', 'Verifikasi Dokumen Pengguna')
-          * description: narasi terstruktur: 'Sebagai [user_type], saya ingin [aksi/fitur spesifik], agar [tujuan & manfaat bisnis terukur].' Sertakan ringkasan alur dan feedback sistem.
-          * acceptance_criteria: 1-2 kriteria penerimaan terukur dalam format Given-When-Then.
-          * tech_notes: 1-2 catatan teknis arsitektur/API/database.
-          * test_cases: 1-2 skenario pengujian QA.
+          * story_name: judul fitur spesifik dan ringkas (contoh: 'Filter & Cari Lowongan Berdasarkan Gaji', 'Pasang Lowongan & Kriteria Kandidat', 'Verifikasi Dokumen Portofolio Pelamar', 'Export Laporan Rekrutmen Bulanan')
+          * description: narasi lengkap & terstruktur minimal 3-4 kalimat: 'Sebagai [user_type], saya ingin [aksi/fitur spesifik], agar [tujuan & manfaat bisnis terukur].' Sertakan ringkasan alur interaksi pengguna dan umpan balik sistem.
+          * acceptance_criteria: 2-3 kriteria penerimaan terukur dalam format Given-When-Then.
+          * tech_notes: 2-3 catatan teknis arsitektur/API/database/keamanan.
+          * test_cases: 2-3 skenario pengujian QA konkret (positif & edge case).
 
-    4. NON-FUNCTIONAL REQUIREMENTS (2 - 3 NFR inti)
-        - Buat 2 sampai 3 NFR penting (kategori: Performance, Security, Usability) dengan target yang terukur dan ringkas (1-2 kalimat).
+    4. NON-FUNCTIONAL REQUIREMENTS (WAJIB 4 - 5 NFR spesifik & terukur)
+        - WAJIB buat 4 sampai 5 NFR konkret mencakup kategori: Performance, Security, Reliability, Usability, dan Data Privacy/Scalability.
+        - Setiap NFR WAJIB memiliki target kuantitatif/terukur (contoh: 'Waktu respons API < 1.5 detik', 'Uptime 99.5%', 'Enkripsi data TLS 1.3 & password hashing bcrypt/Argon2', 'Kepatuhan UU PDP dalam penyimpanan data pribadi').
+        - DILARANG membiarkan array NFR kosong!
 
-    5. FORMAT
+    5. USER JOURNEY
+        - WAJIB hasilkan objek `user_journey`:
+          * narrative: 5-7 kalimat narasi komprehensif yang menceritakan perjalanan alur pengguna dari mulai membuka aplikasi/daftar hingga berhasil menyelesaikan tujuan utamanya.
+          * steps: 5-7 tahapan langkah berurutan dari awal sampai akhir, dengan title, deskripsi aksi UI/respons sistem konkret, dan assign persona_name yang melakukan aksi tersebut.
+
+    6. FORMAT
         - Gunakan Bahasa Indonesia yang baik dan profesional.
-        - Jaga isi tetap berbobot, bervariasi, tidak monoton, dan hasilkan output sesuai skema JSON.
+        - Jaga isi tetap berbobot, detail, bervariasi, tidak monoton, dan hasilkan output sesuai skema JSON.
     """
 
     try:
-        return _generate_structured(prompt, ProjectRequirementsOutput, temperature=0.3, max_tokens=4096)
+        output = _generate_structured(prompt, ProjectRequirementsOutput, temperature=0.3, max_tokens=4096)
     except Exception as e:
         raise RuntimeError(f"Gagal generate project requirements: {str(e)}") from e
+
+    # Proteksi mutlak: pastikan nfrs selalu terisi minimal 4 kategori standar industri jika AI mengosongkannya
+    if not output.nfrs or len(output.nfrs) < 2:
+        output.nfrs = [
+            NFRSuggestion(
+                category="Performance",
+                description=f"Waktu respons sistem untuk pemuatan data dan API utama {project_name} rata-rata di bawah 1.5 detik pada koneksi internet standar, mampu menangani hingga 500 permintaan bersamaan (concurrent requests) tanpa degradasi performa."
+            ),
+            NFRSuggestion(
+                category="Security",
+                description=f"Seluruh komunikasi data wajib menggunakan protokol HTTPS (TLS 1.3), kata sandi pengguna di-hash dengan algoritma aman (bcrypt/Argon2), serta otorisasi berbasis token JWT dengan pembatasan hak akses sesuai peran user."
+            ),
+            NFRSuggestion(
+                category="Reliability",
+                description=f"Tingkat ketersediaan layanan (uptime) sistem {project_name} ditargetkan minimal 99.5% per bulan, didukung mekanisme pencadangan (backup) basis data otomatis berkala dan toleransi pemulihan bencana (RTO) maksimal 2 jam."
+            ),
+            NFRSuggestion(
+                category="Usability",
+                description=f"Antarmuka pengguna dirancang responsif di berbagai perangkat (desktop, tablet, mobile), intuitif, dan memenuhi standar aksesibilitas WCAG 2.1 level AA dengan kurva belajar pengguna baru di bawah 15 menit."
+            ),
+        ]
+
+    # Proteksi mutlak: pastikan SETIAP Epic memiliki minimal 2 user stories lengkap
+    default_role = output.user_types[0].name if output.user_types else "Pengguna"
+    for epic in output.epics:
+        stories_in_epic = [s for s in output.user_stories if s.epic_name == epic.name]
+        if len(stories_in_epic) < 2:
+            needed = 2 - len(stories_in_epic)
+            for k in range(needed):
+                action_name = "Kelola & Pantau Alur" if k == 0 else "Konfigurasi & Validasi Data"
+                output.user_stories.append(
+                    UserStorySuggestion(
+                        epic_name=epic.name,
+                        story_name=f"{action_name} {epic.name}",
+                        user_type=default_role,
+                        description=(
+                            f"Sebagai {default_role}, saya ingin menjalankan fitur {action_name.lower()} pada modul {epic.name}, "
+                            f"agar seluruh proses dan alur kerja dapat tercatat dengan akurat dan efisien di sistem."
+                        ),
+                        acceptance_criteria=[
+                            f"Given {default_role} membuka modul {epic.name}, When melakukan aksi {action_name.lower()}, Then sistem memproses dan menampilkan konfirmasi sukses.",
+                            f"Given parameter input tidak valid atau koneksi bermasalah, When pengguna mengirim formulir, Then sistem menampilkan pesan validasi yang jelas."
+                        ],
+                        tech_notes=[
+                            f"Endpoint API terproteksi JWT untuk aksi {action_name.lower()} pada modul {epic.name}",
+                            "Validasi skema payload dan pencatatan audit log transaksi"
+                        ],
+                        test_cases=[
+                            f"Uji pengiriman data valid pada {action_name.lower()} {epic.name} menghasilkan status 200/201",
+                            "Uji skenario validasi gagal jika field wajib kosong menghasilkan status 422/400"
+                        ]
+                    )
+                )
+
+    # Proteksi mutlak: pastikan user_journey selalu memiliki narasi dan langkah konkret
+    if not output.user_journey or not output.user_journey.narrative or not output.user_journey.steps:
+        primary_persona = (
+            output.user_types[0].personas[0].name
+            if (output.user_types and output.user_types[0].personas)
+            else (output.user_types[0].name if output.user_types else "Pengguna")
+        )
+        output.user_journey = UserJourneySuggestion(
+            narrative=(
+                f"Pengguna ({primary_persona}) membuka aplikasi {project_name} untuk memenuhi kebutuhan "
+                f"utamanya secara efisien. Melalui tahapan onboarding, eksplorasi fitur pada modul utama, "
+                f"hingga eksekusi tugas inti, sistem menyediakan antarmuka responsif dan alur yang jelas "
+                f"sehingga tujuan tercapai tanpa hambatan teknis."
+            ),
+            steps=[
+                UserJourneyStepSuggestion(
+                    title="Membuka Aplikasi & Onboarding",
+                    description=f"{primary_persona} mengakses halaman awal {project_name} dan melihat ikhtisar fitur serta alur onboarding yang ramah.",
+                    persona_name=primary_persona
+                ),
+                UserJourneyStepSuggestion(
+                    title="Autentikasi & Masuk Akun",
+                    description=f"{primary_persona} melakukan proses autentikasi untuk memperoleh akses penuh ke fitur yang dipersonalisasi.",
+                    persona_name=primary_persona
+                ),
+                UserJourneyStepSuggestion(
+                    title="Eksplorasi Modul Utama",
+                    description=f"{primary_persona} menavigasi menu modul utama aplikasi dan menemukan data atau tindakan yang relevan dengan kebutuhannya.",
+                    persona_name=primary_persona
+                ),
+                UserJourneyStepSuggestion(
+                    title="Eksekusi Aktivitas Inti",
+                    description=f"{primary_persona} mengisi data atau menjalankan tindakan utama, dan sistem memberikan umpan balik validasi secara instan.",
+                    persona_name=primary_persona
+                ),
+                UserJourneyStepSuggestion(
+                    title="Konfirmasi & Penyelesaian Tujuan",
+                    description=f"Sistem menampilkan status sukses dan konfirmasi akhir, menandai bahwa sasaran utama {primary_persona} telah berhasil diselesaikan.",
+                    persona_name=primary_persona
+                ),
+            ]
+        )
+
+    return output
 
 def suggest_project_description(project_name: str, platform_type: str) -> str:
     """Menghasilkan draf deskripsi proyek singkat (2-4 kalimat) berdasarkan nama & platform"""

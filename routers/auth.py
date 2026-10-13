@@ -154,4 +154,13 @@ def reset_password(request: schemas.ResetPasswordRequest, db: Session = Depends(
     #  Hash password baru dan simpan ke database
     user.hashed_password = auth.get_password_hash(request.new_password)
     db.commit()
-    return {"message": "Password berhasil diperbarui"}
+
+    # Kirim notifikasi keamanan via Brevo Email
+    try:
+        from services.email import send_password_changed_notification
+        display_name = user.full_name or user.username
+        send_password_changed_notification(to_email=user.email, username=display_name)
+    except Exception as e:
+        print(f"⚠️ Gagal mengirim notifikasi email Brevo: {str(e)}")
+
+    return {"message": "Password berhasil diperbarui dan notifikasi keamanan telah dikirim ke email"}

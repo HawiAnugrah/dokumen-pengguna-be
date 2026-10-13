@@ -15,6 +15,7 @@ from services.ai import (
     suggest_epic_draft,
     suggest_epic_refinement,
     suggest_user_type_draft,
+    suggest_story_draft,
 )
 import model
 import schemas
@@ -404,11 +405,24 @@ def save_project_requirements(
             )
             db.add(db_note)
 
-        # TAMBAHAN: simpan test cases
+        # TAMBAHAN: simpan test cases (model.TestCase menggunakan kolom action dan expected_result)
         for tc in story_data.test_cases:
+            tc_str = str(tc).strip()
+            action_val = tc_str
+            expected_val = "Hasil pengujian sesuai spesifikasi"
+            if "->" in tc_str or "→" in tc_str:
+                parts = re.split(r"->|→", tc_str, maxsplit=1)
+                action_val = parts[0].strip()
+                expected_val = parts[1].strip()
+            elif ":" in tc_str:
+                parts = tc_str.split(":", 1)
+                action_val = parts[0].strip()
+                expected_val = parts[1].strip()
+
             db_tc = model.TestCase(
                 user_story_id=db_story.id,
-                description=tc
+                action=action_val or "Jalankan pengujian skenario",
+                expected_result=expected_val or "Sistem merespons sesuai kriteria"
             )
             db.add(db_tc)
 
@@ -550,6 +564,31 @@ def suggest_epic_refine_endpoint(
         )
 
     return schemas.SuggestEpicRefineResponse(title=result.title, description=result.description)
+
+
+@router.post("/suggest-story-draft", response_model=schemas.SuggestStoryDraftResponse)
+def suggest_story_draft_endpoint(
+    payload: schemas.SuggestStoryDraftRequest,
+    current_user: model.User = Depends(auth.get_current_user)
+):
+    """AI Draft: menghasilkan saran User Story spesifik berdasarkan epic dan user type."""
+    try:
+        result = suggest_story_draft(
+            project_name=payload.project_name,
+            epic_title=payload.epic_title,
+            user_type=payload.user_type,
+            project_description=payload.project_description or "",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI gagal membuat draf user story: {str(e)}"
+        )
+
+    return schemas.SuggestStoryDraftResponse(
+        story_name=result.story_name,
+        description=result.description
+    )
 
 
 @router.get("/{project_id}/export/pdf")

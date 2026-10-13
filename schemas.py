@@ -45,9 +45,13 @@ class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
 
+class RequestPasswordOTP(BaseModel):
+    current_password: str
+
 class PasswordUpdate(BaseModel):
     current_password: str
     new_password: str
+    otp_code: str
 
 # WORKSPACE
 
@@ -704,6 +708,16 @@ class SuggestUserTypeDescriptionResponse(BaseModel):
     description: str
 
 # ================= TAMBAHAN: AI SUGGEST USER STORY =================
+class SuggestStoryDraftRequest(BaseModel):
+    project_name: str
+    epic_title: str
+    user_type: str
+    project_description: Optional[str] = ""
+
+class SuggestStoryDraftResponse(BaseModel):
+    story_name: str
+    description: str
+
 class StoryAiSuggestRequest(BaseModel):
     as_a: Optional[str] = ""
     i_want: Optional[str] = ""
@@ -717,4 +731,4 @@ class StoryAiSuggestResponse(BaseModel):
     so_that: str
     acceptance_criteria: List[str]
     tech_notes: List[str]
-    test_cases: List[str]
+    test_cases: List[str]

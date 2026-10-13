@@ -42,33 +42,61 @@ def get_user_token_usage(
     ).scalar() or 0
 
     # 2. Detail Konfigurasi & Pelacakan RPD (Requests Per Day) Terpisah per Provider AI
+    # Batas otomatis disesuaikan dengan perkalian jumlah API Key aktif di .env
+    raw_gemini_keys = os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY", "")
+    gemini_keys = [k.strip() for k in re.split(r"[,;\n]+", raw_gemini_keys) if k.strip()]
+    gemini_key_count = len(gemini_keys) if gemini_keys else (1 if raw_gemini_keys else 0)
+
+    raw_groq_keys = os.getenv("GROQ_API_KEYS") or os.getenv("GROQ_API_KEY", "")
+    groq_keys = [k.strip() for k in re.split(r"[,;\n]+", raw_groq_keys) if k.strip()]
+    groq_key_count = len(groq_keys) if groq_keys else (1 if raw_groq_keys else 0)
+
+    raw_openrouter_keys = os.getenv("OPENROUTER_API_KEYS") or os.getenv("OPENROUTER_API_KEY", "")
+    openrouter_keys = [k.strip() for k in re.split(r"[,;\n]+", raw_openrouter_keys) if k.strip()]
+    openrouter_key_count = len(openrouter_keys) if openrouter_keys else (1 if raw_openrouter_keys else 0)
+
+    base_gemini_rpd = int(os.getenv("GEMINI_RPD_LIMIT", "1500"))
+    base_gemini_daily = int(os.getenv("GEMINI_DAILY_LIMIT", "1000000"))
+    base_gemini_monthly = int(os.getenv("GEMINI_MONTHLY_LIMIT", "30000000"))
+
+    base_openrouter_rpd = int(os.getenv("OPENROUTER_RPD_LIMIT", "200"))
+    base_openrouter_daily = int(os.getenv("OPENROUTER_DAILY_LIMIT", "200000"))
+    base_openrouter_monthly = int(os.getenv("OPENROUTER_MONTHLY_LIMIT", "5000000"))
+
+    base_groq_rpd = int(os.getenv("GROQ_RPD_LIMIT", "1000"))
+    base_groq_daily = int(os.getenv("GROQ_DAILY_LIMIT", "500000"))
+    base_groq_monthly = int(os.getenv("GROQ_MONTHLY_LIMIT", "15000000"))
+
     provider_configs = [
         {
             "name": "Google Gemini",
             "provider_key": "gemini",
             "model": os.getenv("GEMINI_MODEL_NAME") or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-            "rpd_limit": int(os.getenv("GEMINI_RPD_LIMIT", "1500")),
-            "daily_limit": int(os.getenv("GEMINI_DAILY_LIMIT", "1000000")),
-            "monthly_limit": int(os.getenv("GEMINI_MONTHLY_LIMIT", "30000000")),
-            "status": "Ready" if os.getenv("GEMINI_API_KEY") else "Not Configured"
+            "key_count": gemini_key_count,
+            "rpd_limit": base_gemini_rpd * max(1, gemini_key_count),
+            "daily_limit": base_gemini_daily * max(1, gemini_key_count),
+            "monthly_limit": base_gemini_monthly * max(1, gemini_key_count),
+            "status": "Ready" if gemini_key_count > 0 else "Not Configured"
         },
         {
             "name": "OpenRouter AI",
             "provider_key": "openrouter",
             "model": os.getenv("OPENROUTER_MODEL_NAME", "meta-llama/llama-3.3-70b-instruct:free"),
-            "rpd_limit": int(os.getenv("OPENROUTER_RPD_LIMIT", "200")),
-            "daily_limit": int(os.getenv("OPENROUTER_DAILY_LIMIT", "200000")),
-            "monthly_limit": int(os.getenv("OPENROUTER_MONTHLY_LIMIT", "5000000")),
-            "status": "Ready" if os.getenv("OPENROUTER_API_KEY") else "Not Configured"
+            "key_count": openrouter_key_count,
+            "rpd_limit": base_openrouter_rpd * max(1, openrouter_key_count),
+            "daily_limit": base_openrouter_daily * max(1, openrouter_key_count),
+            "monthly_limit": base_openrouter_monthly * max(1, openrouter_key_count),
+            "status": "Ready" if openrouter_key_count > 0 else "Not Configured"
         },
         {
             "name": "Groq Cloud LPU",
             "provider_key": "groq",
             "model": os.getenv("GROQ_MODEL_NAME", "llama-3.3-70b-versatile"),
-            "rpd_limit": int(os.getenv("GROQ_RPD_LIMIT", "1000")),
-            "daily_limit": int(os.getenv("GROQ_DAILY_LIMIT", "500000")),
-            "monthly_limit": int(os.getenv("GROQ_MONTHLY_LIMIT", "15000000")),
-            "status": "Ready" if os.getenv("GROQ_API_KEY") else "Not Configured"
+            "key_count": groq_key_count,
+            "rpd_limit": base_groq_rpd * max(1, groq_key_count),
+            "daily_limit": base_groq_daily * max(1, groq_key_count),
+            "monthly_limit": base_groq_monthly * max(1, groq_key_count),
+            "status": "Ready" if groq_key_count > 0 else "Not Configured"
         }
     ]
 
@@ -130,6 +158,7 @@ def get_user_token_usage(
             "provider_key": pkey,
             "model": cfg["model"],
             "status": cfg["status"],
+            "key_count": cfg.get("key_count", 1),
             "rpd_limit": r_limit,
             "rpd_used": r_used,
             "rpd_remaining": r_rem,

@@ -1,12 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.orm import Session
 from typing import Optional
+import random
+from datetime import datetime, timedelta, timezone
 
 import model
 import schemas
 import auth
 from database import get_db
 from services.storage import upload_avatar  # <-- Impor helper upload MinIO kita
+from services.email import send_otp_email, send_password_changed_notification
+
 
 router = APIRouter(prefix="/api/profile", tags=["Profile"])
 
@@ -73,22 +77,102 @@ def upload_profile_avatar(
             detail=f"Gagal mengunggah foto profil: {str(e)}"
         )
 
+@router.post("/request-password-otp")
+def request_password_otp(
+    request_data: schemas.RequestPasswordOTP,
+    db: Session = Depends(get_db),
+    current_user: model.User = Depends(auth.get_current_user)
+):
+    """Meminta kode verifikasi 6-digit (OTP) via email untuk verifikasi pengubahan kata sandi"""
+    # 1. Verifikasi kecocokan kata sandi lama
+    if not auth.verify_password(request_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Kata sandi saat ini tidak sesuai."
+        )
+
+    # 2. Nonaktifkan OTP lama yang belum terpakai untuk tujuan ini
+    db.query(model.VerificationOTP).filter(
+        model.VerificationOTP.user_id == current_user.id,
+        model.VerificationOTP.purpose == "change_password",
+        model.VerificationOTP.is_used == False
+    ).update({"is_used": True})
+
+    # 3. Generate 6-digit kode OTP acak
+    otp_code = f"{random.randint(100000, 999999):06d}"
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    new_otp = model.VerificationOTP(
+        user_id=current_user.id,
+        otp_code=otp_code,
+        purpose="change_password",
+        expires_at=expires_at,
+        is_used=False
+    )
+    db.add(new_otp)
+    db.commit()
+
+    # 4. Kirim email OTP via Brevo
+    display_name = current_user.full_name or current_user.username
+    email_sent = send_otp_email(to_email=current_user.email, username=display_name, otp_code=otp_code)
+
+    if not email_sent:
+        return {
+            "message": f"Kode OTP berhasil dibuat. Namun pengiriman email ke {current_user.email} tertahan oleh Brevo (Periksa otorisasi IP di Brevo). Anda dapat menyalin kode OTP langsung dari terminal backend."
+        }
+
+    return {
+        "message": f"Kode verifikasi (OTP) telah dikirim ke {current_user.email}. Silakan cek kotak masuk atau folder spam Anda."
+    }
+
+
 @router.put("/change-password")
 def change_password(
     password_data: schemas.PasswordUpdate,
     db: Session = Depends(get_db),
     current_user: model.User = Depends(auth.get_current_user)
 ):
-    """Mengubah kata sandi akun"""
+    """Mengubah kata sandi akun dengan validasi kata sandi lama dan kode OTP email"""
     # 1. Verifikasi apakah password lama cocok
     if not auth.verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Kata sandi lama tidak sesuai"
+            detail="Kata sandi saat ini tidak sesuai."
         )
-    
-    # 2. Enkripsi dan simpan password baru
+
+    # 2. Verifikasi kode OTP
+    if not password_data.otp_code or not password_data.otp_code.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Kode verifikasi (OTP) wajib diisi. Silakan minta kode OTP terlebih dahulu."
+        )
+
+    now = datetime.now(timezone.utc)
+    otp_record = db.query(model.VerificationOTP).filter(
+        model.VerificationOTP.user_id == current_user.id,
+        model.VerificationOTP.purpose == "change_password",
+        model.VerificationOTP.is_used == False,
+        model.VerificationOTP.expires_at > now
+    ).order_by(model.VerificationOTP.id.desc()).first()
+
+    if not otp_record or otp_record.otp_code != password_data.otp_code.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Kode OTP tidak valid atau telah kedaluwarsa (berlaku 10 menit). Silakan minta kode OTP baru."
+        )
+
+    # Tandai OTP sudah digunakan
+    otp_record.is_used = True
+
+    # 3. Enkripsi dan simpan password baru
     current_user.hashed_password = auth.get_password_hash(password_data.new_password)
     db.commit()
-    
-    return {"message": "Kata sandi berhasil diubah"}
+
+    # 4. Kirim notifikasi keamanan via Brevo Email
+    try:
+        display_name = current_user.full_name or current_user.username
+        send_password_changed_notification(to_email=current_user.email, username=display_name)
+    except Exception as e:
+        print(f"⚠️ Gagal mengirim notifikasi email Brevo: {str(e)}")
+
+    return {"message": "Kata sandi berhasil diubah! Notifikasi keamanan telah dikirim ke email Anda."}

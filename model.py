@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime, timezone
@@ -17,6 +17,19 @@ class User(Base):
     workspaces_owned = relationship("Workspace", back_populates="owner")
     workspace_memberships = relationship("WorkspaceMember", back_populates="user")
     projects_created = relationship("Project", back_populates="creator")
+
+class VerificationOTP(Base):
+    __tablename__ = "verification_otps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    otp_code = Column(String, nullable=False)
+    purpose = Column(String, nullable=False, default="change_password")
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_used = Column(Boolean, default=False)
+
+    user = relationship("User")
 
 class Workspace(Base):
     __tablename__ = "workspaces"

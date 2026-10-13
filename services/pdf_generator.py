@@ -311,7 +311,7 @@ def build_project_pdf(project) -> bytes:
                         ('RIGHTPADDING', (0, 0), (-1, -1), 8),
                     ]))
                     story_elements.append(Spacer(1, 4))
-                    story_elements.append(KeepTogether(story_table))
+                    story_elements.append(story_table)
 
             story_elements.append(Spacer(1, 8))
 
@@ -357,35 +357,17 @@ def build_project_pdf(project) -> bytes:
 
             steps = sorted(getattr(j, "steps", []) or [], key=lambda x: x.step_order)
             if steps:
-                step_rows = [[
-                    Paragraph("<b>Langkah</b>", style_body_bold),
-                    Paragraph("<b>Aktivitas & Deskripsi</b>", style_body_bold),
-                    Paragraph("<b>Persona</b>", style_body_bold),
-                ]]
                 for s in steps:
-                    p_name = s.persona.name if s.persona else "-"
-                    step_desc = f"<b>{clean_text(s.title)}</b>"
+                    p_name = s.persona.name if s.persona else "Pengguna"
+                    step_header = f"<b>Langkah {s.step_order}: {clean_text(s.title)}</b> &nbsp;&nbsp;|&nbsp;&nbsp; <i>Persona: {clean_text(p_name)}</i>"
+                    story_elements.append(Spacer(1, 4))
+                    story_elements.append(Paragraph(step_header, style_body_bold))
                     if s.description:
-                        step_desc += f"<br/>{clean_text(s.description)}"
-                    step_rows.append([
-                        Paragraph(f"Step {s.step_order}", style_body),
-                        Paragraph(step_desc, style_body),
-                        Paragraph(clean_text(p_name), style_body),
-                    ])
-
-                j_table = Table(step_rows, colWidths=[65, 330, 120])
-                j_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
-                    ('BOX', (0, 0), (-1, -1), 0.5, BORDER_LIGHT),
-                    ('INNERGRID', (0, 0), (-1, -1), 0.5, BORDER_LIGHT),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('TOPPADDING', (0, 0), (-1, -1), 4),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-                ]))
-                story_elements.append(Spacer(1, 4))
-                story_elements.append(j_table)
+                        desc_clean = clean_text(s.description)
+                        for part in desc_clean.split("<br/>"):
+                            if part.strip():
+                                story_elements.append(Paragraph(part.strip(), style_body))
+                    story_elements.append(Spacer(1, 4))
             story_elements.append(Spacer(1, 8))
 
     # ================= 5. BUILD MODULE (TECH STACK & GUIDELINES) =================
@@ -441,7 +423,7 @@ def build_project_pdf(project) -> bytes:
                     ('RIGHTPADDING', (0, 0), (-1, -1), 8),
                 ]))
                 story_elements.append(Spacer(1, 4))
-                story_elements.append(KeepTogether(g_table))
+                story_elements.append(g_table)
             story_elements.append(Spacer(1, 8))
 
         if plans:

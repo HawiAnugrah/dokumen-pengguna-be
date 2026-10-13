@@ -26,14 +26,17 @@ def update_profile(
     current_user: model.User = Depends(auth.get_current_user)
 ):
     """Mengubah info profil (nama lengkap)"""
+    user = db.query(model.User).filter(model.User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
     if profile_data.full_name is not None:
-        current_user.full_name = profile_data.full_name
+        user.full_name = profile_data.full_name
     if profile_data.avatar_url is not None:
-        current_user.avatar_url = profile_data.avatar_url
+        user.avatar_url = profile_data.avatar_url
         
     db.commit()
-    db.refresh(current_user)
-    return current_user
+    db.refresh(user)
+    return user
 
 @router.post("/avatar", response_model=schemas.UserResponse)
 def upload_profile_avatar(
@@ -65,11 +68,14 @@ def upload_profile_avatar(
         )
         
         # 5. Simpan URL publik hasil upload ke database user
-        current_user.avatar_url = avatar_url
+        user = db.query(model.User).filter(model.User.id == current_user.id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+        user.avatar_url = avatar_url
         db.commit()
-        db.refresh(current_user)
+        db.refresh(user)
         
-        return current_user
+        return user
         
     except Exception as e:
         raise HTTPException(
@@ -164,8 +170,11 @@ def change_password(
     # Tandai OTP sudah digunakan
     otp_record.is_used = True
 
-    # 3. Enkripsi dan simpan password baru
-    current_user.hashed_password = auth.get_password_hash(password_data.new_password)
+    # 3. Enkripsi dan simpan password baru ke user di database session aktif
+    user = db.query(model.User).filter(model.User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+    user.hashed_password = auth.get_password_hash(password_data.new_password)
     db.commit()
 
     # 4. Kirim notifikasi keamanan via Brevo Email
